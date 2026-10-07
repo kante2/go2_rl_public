@@ -2,6 +2,18 @@
 
 `~/go2_rl`에서 진행하는 Unitree Go2 강화학습, 시뮬레이션, 실제 로봇 제어와 sim2real 연결을 정리하는 문서 저장소다. 코드·체크포인트·모델·실행 로그는 `~/go2_rl`에서 관리하며, 여기에는 현재 구현과 확인 결과를 한국어로 기록한다.
 
+## Progress Videos
+
+Videos documenting policy deployment and robot experiments. Latest updates appear first.
+
+### 2026-10-07 — Learned Locomotion Policy Deployed on the Real Robot
+
+Synchronized side-by-side footage of the MuJoCo visualization and the real Go2 robot.
+
+[![MuJoCo visualization and real Go2 robot](video/2026-10-07-learned-locomotion-real-robot-preview.jpg)](video/sim_real_side_by_side_synced_7s%20%281%29.mp4)
+
+[▶ Watch video](video/sim_real_side_by_side_synced_7s%20%281%29.mp4)
+
 ## 문서 구성
 
 | 폴더 | 기록하는 내용 |
