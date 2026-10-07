@@ -10,9 +10,9 @@ Videos documenting policy deployment and robot experiments. Latest updates appea
 
 Synchronized side-by-side footage of the MuJoCo visualization and the real Go2 robot.
 
-[![MuJoCo visualization and real Go2 robot](video/2026-10-07-learned-locomotion-real-robot-preview.jpg)](video/sim_real_side_by_side_synced_7s%20%281%29.mp4)
+[![MuJoCo visualization and real Go2 robot](video/2026-10-07-learned-locomotion-real-robot-preview.jpg)](https://youtu.be/tbz4j0fWV4E?si=EWEwPF1a_iUDlggj)
 
-[▶ Watch video](video/sim_real_side_by_side_synced_7s%20%281%29.mp4)
+[▶ Watch on YouTube](https://youtu.be/tbz4j0fWV4E?si=EWEwPF1a_iUDlggj)
 
 ## 문서 구성
 
