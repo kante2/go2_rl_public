@@ -1,0 +1,20 @@
+# Local generated files and credentials do not belong in this documentation repo.
+__pycache__/
+*.py[cod]
+.venv*/
+.env
+.env.*
+*.pem
+*.key
+logs/
+log/
+build/
+install/
+artifacts/
+*.pt
+*.onnx
+*.onnx.data
+*.npz
+*.bag
+*.db3
+.DS_Store
