@@ -1,6 +1,6 @@
 # Go2 시뮬레이터 구성과 현재 사용 방법
 
-이 문서는 **2026-10-07의 `~/go2_rl` 작업 트리**에서 Go2를 어떤 시뮬레이터로 학습·평가하고, 키보드와 경로 플래너를 어떻게 연결하는지 기록한다. 기준 커밋은 `35605c5c01887d7ab099736c357536e5006d64e6`이며, 커밋 이후 로컬 수정도 포함한다. 아래 소스 경로와 실행 명령은 공개 문서 저장소가 아닌 **원본 `~/go2_rl`**을 기준으로 한다. 이번 문서화 과정에서 학습, 시뮬레이션 또는 로봇 제어를 새로 실행하지 않았다.
+이 문서는 **2026-10-08(Asia/Seoul)의 `~/go2_rl` 작업 트리**에서 Go2를 어떤 시뮬레이터로 학습·평가하고, 키보드와 경로 플래너를 어떻게 연결하는지 기록한다. 기준 커밋은 `472850eebd2194eb71141b1349087145e4974f30`이다. 오늘 추가된 `go2_autodrive`와 학습 경로 리팩터링을 소스·설정·저장 로그에 대조했다. 아래 소스 경로와 실행 명령은 공개 문서 저장소가 아닌 **원본 `~/go2_rl`**을 기준으로 한다. 이번 문서화 과정에서 학습, 시뮬레이션 또는 로봇 제어를 새로 실행하지 않았다.
 
 ## 1. 구분해야 하는 세 가지 실행 경로
 
@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | mjlab 학습·정책 재생 | 속도 추종 보행 정책 학습 및 성능 확인 | Python / mjlab / MuJoCo Warp | PyTorch 정책, 환경 내부 관측·action | Flat/Rough 환경과 학습·재생 코드가 존재하며, 현재 통합은 Flat 체크포인트 사용 |
 | C++ MuJoCo DDS sim2sim | 배포용 제어기를 가상 Go2의 SDK 통신과 연결 | `simulate/`의 `unitree_mujoco` + `deploy/`의 `go2_ctrl` | ONNX 정책, Unitree DDS | 별도 소스 경로. 현재 로컬 배포 헤더 손상으로 빌드 완료 상태로 간주할 수 없음 |
-| Python MuJoCo + ROS 2 내비게이션 | 키보드 웨이포인트 → 장애물 회피 경로 → 학습 보행 | 컨테이너 mjlab 1개 환경 + 호스트 ROS 2 플래너 | `model_10000.pt`, 로컬 UDP와 ROS 토픽 | 현재 키보드·플래너 통합의 주 실행 경로 |
+| Python MuJoCo + ROS 2 내비게이션 | 키보드 웨이포인트 → 장애물 회피 경로 → 학습 보행 | 동일 Docker 컨테이너의 mjlab 1개 환경 + ROS 2 플래너 | `model_10000.pt`, 로컬 UDP와 ROS 토픽 | 새 `go2_autodrive`와 기존 `go2_autonomous_driving.sim` 구현이 공존 |
 
 실로봇용 MuJoCo 자세 뷰어는 위 물리 시뮬레이터와 역할이 다르다. 실제 IMU·관절 상태를 표시하고 물리 적분과 제어 명령 생성을 하지 않는다. 자세 뷰어와 실로봇 폐루프는 [real 문서](../real/README.md), 시뮬레이션·실기 매핑은 [sim2real 문서](../sim2real/README.md)를 참고한다.
 
@@ -16,7 +16,9 @@
 
 ### 환경과 물리 주기
 
-`src/tasks/go2/registry.py`가 `Unitree-Go2-Flat`과 `Unitree-Go2-Rough`를 등록한다. 환경은 `src/tasks/go2/step_01_environment/`, 관측·보상·종료 규칙은 `step_02_learning/`, PPO와 학습은 `step_03_training/`, 정책 재생은 `step_04_evaluation/play.py`에 있다. 학습 방법은 [RL 문서](../rl/README.md)에 정리한다.
+`src/locomotion_rl/go2_baseline/registry.py`가 `Unitree-Go2-Flat`과 `Unitree-Go2-Rough`를 등록한다. 환경은 `src/locomotion_rl/go2_baseline/step_01_environment/`, 관측·보상·종료 규칙은 `step_02_learning/`, PPO와 학습은 `step_03_training/`, 정책 재생은 `step_04_evaluation/play.py`에 있다. 학습 방법은 [RL 문서](../rl/README.md)에 정리한다.
+
+이 경로는 오늘 `src/tasks/go2/`에서 이동했다. 등록 import는 `import src.locomotion_rl`로 바뀌었고 `scripts/train.py`·`scripts/play.py`는 새 경로를 호출한다. Flat/Rough task 이름, 네 단계 구성과 아래 물리 설정은 유지된다.
 
 | 설정 | 현재 코드 값 | 출처 |
 | --- | --- | --- |
@@ -52,7 +54,14 @@ play에서는 actor 관측 잡음과 `push_robot` 외란을 끄고 커리큘럼�
 
 ### 현재 체크포인트와 관측
 
-현재 내비게이션은 원본 루트의 `model_10000.pt`를 사용한다. 코드가 검사하는 정책 규격은 actor **47차원 입력, 12차원 출력**이며 MLP는 `47 → 512 → 256 → 128 → 12`다. actor 정규화를 포함한 runner의 inference policy를 그대로 사용한다.
+체크포인트는 루트에서 패키지 안으로 이동했다. 현재 두 내비게이션 구현의 기본 경로는 다음과 같다.
+
+| 구현 | 설정 파일 | JSON의 `checkpoint` | 해석된 원본 경로 |
+| --- | --- | --- | --- |
+| 새 `go2_autodrive` | `src/go2_autodrive/config/simulation.json` | `model_pt/model_10000.pt` | `src/go2_autodrive/config/model_pt/model_10000.pt` |
+| 기존 `go2_autonomous_driving.sim` | `src/go2_autonomous_driving/config/simulation.json` | `../model_pt/model_10000.pt` | `src/go2_autonomous_driving/model_pt/model_10000.pt` |
+
+JSON 상대 경로는 설정 파일이 있는 디렉터리를 기준으로 해석하며, `--checkpoint`로 지정한 경로는 실행 디렉터리 기준이다. 두 파일의 SHA-256은 `3e1fb4cd705ce09550c96ee99f120563d7f2aaa638f6ebc261f3559ec8b5c736`으로 같다. 모델 위치 변경 자체는 재학습을 뜻하지 않는다. 코드가 검사하는 정책 규격은 actor **47차원 입력, 12차원 출력**이며 MLP는 `47 → 512 → 256 → 128 → 12`다. actor 정규화를 포함한 runner의 inference policy를 그대로 사용한다.
 
 | actor 관측 순서 | 차원 |
 | --- | ---: |
@@ -71,10 +80,8 @@ Flat critic은 몸체 선속도, 발 높이·체공 시간·접촉·접촉력까
 
 ```bash
 cd ~/go2_rl
-docker start unitree-rl-mjlab
-docker exec -it -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
-  python scripts/play.py Unitree-Go2-Flat \
-  --checkpoint-file /workspace/unitree_rl_mjlab/model_10000.pt \
+bash scripts/run_go2_docker.sh python scripts/play.py Unitree-Go2-Flat \
+  --checkpoint-file /workspace/unitree_rl_mjlab/src/go2_autodrive/config/model_pt/model_10000.pt \
   --num-envs 1 --viewer viser
 ```
 
@@ -84,13 +91,31 @@ Viser는 기본 `http://localhost:8080`을 사용한다. `--viewer native`는 �
 
 ## 3. 현재 Python MuJoCo + ROS 2 내비게이션
 
+### 새 패키지와 기존 실행 경로
+
+오늘 `src/go2_autodrive/`가 추가되었다. 현재는 새 시뮬레이션 패키지와 기존 `src/go2_autonomous_driving/`의 `sim/`·`real/` 분리 구조가 함께 존재한다.
+
+| 구성 | 새 `go2_autodrive` | 기존 `go2_autonomous_driving` |
+| --- | --- | --- |
+| ROS launch | `ros2 launch go2_autodrive simulation.launch.py` | `ros2 launch go2_autonomous_driving simulation.launch.py` |
+| 브리지 executable | `udp_ros_bridge` | `navigation_bridge` |
+| 키보드 executable | `keyboard_waypoint` | `keyboard_waypoint` |
+| MuJoCo 모듈 | `go2_autodrive.simulation.go2_mujuco_udp_runner` | `go2_autonomous_driving.sim.simulation` |
+| 공유 명령 검사 | `go2_autodrive/core.py` | `go2_autonomous_driving/core.py` |
+| 상태 수신 포트 파라미터 | `udp_port` | `telemetry_port` |
+| 브리지·키보드 설정 | launch와 각 Python 노드의 기본 파라미터 | `config/navigation.yaml`과 launch |
+
+새 runner와 키보드는 `main → init → 실행 → close` 함수 구조다. runner는 mjlab command 객체의 `compute`를 연결해 UDP 속도를 적용하고, 키보드는 상태 딕셔너리와 콜백 함수로 연속 목표를 관리한다. 새 브리지는 별도 `NavigationBridge` 클래스를 사용한다. 기존 패키지의 `sim/`·`real/` 코드를 모두 새 패키지로 대체한 상태는 아니다.
+
+`scripts/run_go2_simulation.sh`는 **기존** `go2_autonomous_driving.sim.simulation`을 실행한다. 아래 새 패키지 절차는 runner를 직접 호출한다. 두 구성은 기본 토픽·UDP 포트·뷰어 포트를 공유하므로 한 구성씩 실행한다. 새 패키지의 JSON은 `telemetry_port=9872`를 유지하지만 runner가 이를 `udp_port`로 읽는다. 포트를 바꿀 때 새 launch의 `command_port:=... udp_port:=...`와 JSON의 포트를 함께 맞춘다.
+
 ### 프로세스 연결
 
 ```mermaid
 flowchart LR
-  K["호스트: keyboard_waypoint"] -->|"목표·활성 상태"| B["호스트: navigation_bridge"]
-  B -->|"/go2/planner_way_point"| P["호스트: localPlanner"]
-  P -->|"/path"| F["호스트: pathFollower"]
+  K["컨테이너: keyboard_waypoint"] -->|"목표·활성 상태"| B["컨테이너: udp_ros_bridge"]
+  B -->|"/go2/planner_way_point"| P["컨테이너: localPlanner"]
+  P -->|"/path"| F["컨테이너: pathFollower"]
   F -->|"/cmd_vel"| B
   B -->|"UDP 9871: 몸체 속도"| S["컨테이너: mjlab Flat + 정책 + 물리"]
   S -->|"UDP 9872: 자세·속도·가상 점군"| B
@@ -99,17 +124,17 @@ flowchart LR
   S --> V["Viser :8080"]
 ```
 
-`simulation.py`는 `Unitree-Go2-Flat`의 **play 설정, 환경 1개**를 만들고 속도 command를 UDP 입력으로 교체한다. 정책 GUI 슬라이더가 command를 덮어쓰지 않도록 GUI command 생성도 비활성화한다. 정책이 낸 12개 action은 mjlab의 관절 위치 제어와 MuJoCo 물리를 통해 몸체 이동으로 이어진다.
+`go2_autodrive/simulation/go2_mujuco_udp_runner.py`는 `Unitree-Go2-Flat`의 **play 설정, 환경 1개**를 만들고 속도 command를 UDP 입력으로 교체한다. 정책 GUI 슬라이더가 command를 덮어쓰지 않도록 GUI command 생성도 비활성화한다. 정책이 낸 12개 action은 mjlab의 관절 위치 제어와 MuJoCo 물리를 통해 몸체 이동으로 이어진다.
 
-ROS는 호스트 `/usr/bin/python3`와 Jazzy 환경에서 실행하고, mjlab·PyTorch·MuJoCo Warp는 Docker Python에서 실행한다. Python 환경을 직접 합치지 않고 loopback UDP로 연결한다. 기본 GPU는 사용 가능하면 `cuda:0`이며 코드에는 CPU 선택도 있지만 이 머신의 실행 구성은 NVIDIA 컨테이너를 사용한다.
+ROS 2 Jazzy 플래너·브리지·키보드와 mjlab·PyTorch·MuJoCo Warp를 **같은 `unitree-rl-mjlab` 컨테이너**에서 실행한다. ROS는 시스템 Python 3.12, 학습·물리는 `python`/`go2-python`의 Python 3.11을 사용하며 loopback UDP로 연결한다. `go2-python` 래퍼는 ROS 바이너리 모듈 경로를 제거한다. 호스트에는 시뮬레이션용 ROS 설치가 필요하지 않다. 기본 GPU는 사용 가능하면 `cuda:0`이며 코드에는 CPU 선택도 있지만 이 머신의 실행 구성은 NVIDIA 컨테이너를 사용한다.
 
 ### 센서, 지도와 좌표
 
 현재 위치추정은 MuJoCo의 실제 시뮬레이션 상태에서 읽은 **ground truth**다. `map` 프레임은 시뮬레이터 월드 좌표이고 `vehicle`은 로봇 몸체 프레임이다. 브리지는 `map → vehicle` TF와 odometry를 발행한다. 이 실행 구성은 SLAM 노드, 실제 LiDAR, 저장된 지도 또는 전역 경로 플래너를 실행하지 않는다.
 
-장애물 점군은 `simulation.py`의 `box_surface_points()`가 설정된 상자의 네 옆면을 샘플링해서 만든다. 상자마다 각 면 수평 11점·높이 5단계를 사용하고, 몸체 xy와의 거리가 `3.5 m` 이내인 점을 선택한다. 가림을 계산하는 ray tracing이나 센서 잡음·실제 LiDAR 스캔 패턴은 구현하지 않는다. 점군은 월드 좌표이며 intensity는 1.0이다.
+장애물 점군은 새 runner의 `create_virtual_scan_points()`가 설정된 상자의 네 옆면을 샘플링해서 만든다. 상자마다 각 면 수평 11점·높이 5단계를 사용하고, 몸체 xy와의 거리가 `3.5 m` 이내인 점을 선택한다. 가림을 계산하는 ray tracing이나 센서 잡음·실제 LiDAR 스캔 패턴은 구현하지 않는다. 점군은 월드 좌표이며 intensity는 1.0이다.
 
-기본 장애물은 `config/simulation.json`의 두 상자다. `half_size`는 절반 크기이므로 실제 크기는 두 배다.
+기본 장애물은 `src/go2_autodrive/config/simulation.json`의 두 상자다. `half_size`는 절반 크기이므로 실제 크기는 두 배다.
 
 | 장애물 | 중심 `(x, y, z) m` | 전체 크기 `(x, y, z) m` |
 | --- | --- | --- |
@@ -147,7 +172,7 @@ ROS는 호스트 `/usr/bin/python3`와 Jazzy 환경에서 실행하고, mjlab·P
 | 목표 도달 반경 | `0.2 m` |
 | 위치·점군·경로·키보드 heartbeat timeout | `0.5 s` |
 | 플래너 command / UDP command timeout | `0.3 s` |
-| ROS domain | 호스트 실행 예시 `ROS_DOMAIN_ID=42` |
+| ROS domain | 컨테이너 기본 `ROS_DOMAIN_ID=42` |
 
 `localPlanner`는 차량 길이 `0.65 m`, 폭 `0.4 m`, 상대 장애물 높이 `-0.2~0.5 m`, 경로 scale `0.8`·최소 `0.5`로 설정한다. `pathFollower`는 전진 중심 추종(`twoWayDrive=False`), 최대 속도 `0.5 m/s`, 가속도 `0.4 m/s²`, `maxYawRate=28.0`을 사용한다. 이 yaw 파라미터는 upstream에서 deg/s를 rad/s로 변환하므로 약 `0.489 rad/s`이고, 브리지에는 별도로 `0.5 rad/s` 한계가 있다. 목표 근처 감속 거리 `0.7 m`, 추종기 정지 거리 `0.15 m`이며 최종 목표 판정은 브리지의 `0.2 m` gate가 맡는다.
 
@@ -155,61 +180,67 @@ ROS는 호스트 `/usr/bin/python3`와 Jazzy 환경에서 실행하고, mjlab·P
 
 ### 의존성과 준비
 
-현재 로컬 Docker 구성은 `docker/docker-compose.yml`이다.
+오늘 Dockerfile과 실행 스크립트가 추가되었다. 현재 구성은 `docker/docker-compose.yml`과 `docker/Dockerfile`이다.
 
 - 컨테이너: `unitree-rl-mjlab`, 작업 경로 `/workspace/unitree_rl_mjlab`.
 - 호스트 원본 루트 → 컨테이너 작업 경로에 read/write 마운트.
-- host network·host IPC, NVIDIA runtime/GPU, shared memory `8 GB`, `MUJOCO_GL=egl`.
-- 이미지 `unitree-rl-mjlab:go2-rl-relocation`은 기존 설치 환경을 보존한 **로컬 이미지 이름**이다. 이 공개 문서만 clone해서 받을 수 있는 배포 이미지가 아니다.
-- 호스트: ROS 2 Jazzy, colcon, PCL 개발 라이브러리 및 ROS 메시지·TF 패키지.
-- 외부 플래너: `Navigation-Physical-Experiment`의 Jazzy branch 중 `local_planner`와 의존 패키지.
+- host network, NVIDIA runtime/GPU, shared memory `8 GB`, `MUJOCO_GL=egl`.
+- 로컬 빌드 이미지: `go2-rl:local`. 이 공개 문서 저장소에는 Dockerfile·모델·실행 코드가 포함되지 않는다.
+- 호스트 준비: Linux x86_64, Docker Engine, Compose 2.30 이상, NVIDIA 드라이버와 NVIDIA Container Toolkit.
+- 컨테이너: Ubuntu 24.04 / ROS 2 Jazzy의 Python 3.12, Python 3.11.16 학습 환경, `requirements.lock`의 고정 Python 패키지 139개.
+- 외부 플래너: `Navigation-Physical-Experiment`의 고정 커밋 `9d95a6555bbfbd27b24e9f989c0e67a8268f1500`에서 `local_planner`·`serial`을 가져와 이미지 안에서 빌드한다.
 
-새 머신에서는 원본 프로젝트·의존성을 먼저 준비하고 체크포인트를 루트에 별도로 두어야 한다. 필요한 외부 플래너를 가져오고 빌드하는 명령은 다음과 같다.
+원본 프로젝트와 앞서 적은 체크포인트가 준비된 머신에서 호스트 초기 설정은 다음과 같다. 기존 ROS 미포함 이미지 또는 리팩터링 전 ROS 설치에서 업데이트할 때는 새 패키지·실행 항목을 반영하도록 이미지를 다시 빌드한다.
 
 ```bash
 cd ~/go2_rl
-git clone --branch jazzy https://github.com/Yuxin916/Navigation-Physical-Experiment.git
-source /opt/ros/jazzy/setup.bash
-/usr/bin/python3 scripts/build_go2_navigation.py
+bash scripts/setup_go2_docker.sh
 ```
 
-빌드 도구는 `pcl_msgs`와 `perception_pcl`을 `third_party/go2_navigation/src/`에 준비하고 필요한 플래너 복사본을 만든다. 복사본의 사용하지 않는 `pcl_ros` 의존성을 제거하고 Jazzy 종료 context 처리를 보완한다. 원본 외부 저장소의 알고리즘은 그대로 사용한다. 빌드 결과는 원본 루트의 `build/`, `install/`, `log/`에 생긴다.
+빌드 도구 `scripts/build_go2_navigation.py`는 `go2_autonomous_driving`과 `go2_autodrive`를 모두 선택한다. Docker 빌드는 `--workspace-root /opt/go2_ros_ws --system-pcl`로 이미지의 ROS/PCL 패키지를 사용하며 결과는 `/opt/go2_ros_ws/install`에 둔다. 플래너 복사본의 사용하지 않는 `pcl_ros` 의존성을 제거하고 Jazzy 종료 context 처리를 보완한다. 호스트에서 직접 빌드하면 기본 workspace의 `build/`·`install/`·`log/`에 저장하고, PCL 의존 소스도 준비한다.
+
+호스트 터미널 세 개에서 각각 같은 컨테이너에 접속한다.
+
+```bash
+sh /home/kante/go2_rl/scripts/enter_go2_docker.sh
+```
+
+접속 스크립트가 `/opt/ros/jazzy/setup.bash`와 `/opt/go2_ros_ws/install/setup.bash`를 적용한다. 컨테이너에서는 호스트 `install/setup.bash`를 source하지 않는다. 실행 시 모델·소스는 공유 마운트로 공급한다. `.dockerignore`는 기존 `src/go2_autonomous_driving/model_pt/`를 제외하지만 새 `src/go2_autodrive/config/model_pt/`의 제외 규칙은 아직 없다. Dockerfile의 `COPY src ./src`에 따라 새 모델은 이미지 재빌드 시 복사 대상에 포함된다. 새 패키지 `setup.py`는 launch만 설치하고 JSON·모델은 ROS share에 설치하지 않으므로 아래 runner 명령은 원본 소스 디렉터리를 기준으로 한다.
 
 ### 실행
 
-터미널 1에서 호스트 플래너와 브리지를 실행한다.
+다음은 새 `go2_autodrive` 소스 기준 절차다. 각 명령은 접속한 컨테이너 안에서 실행한다. CLI·설정·환경 확인과 실제 주행 재현 범위는 5절에서 구분한다.
+
+터미널 1에서 플래너와 브리지를 실행한다.
 
 ```bash
-cd ~/go2_rl
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-export ROS_DOMAIN_ID=42
-ros2 launch go2_autonomous_driving simulation.launch.py
+cd /workspace/unitree_rl_mjlab
+ros2 launch go2_autodrive simulation.launch.py
 ```
 
-터미널 2에서 컨테이너의 MuJoCo와 정책을 실행한다. 스크립트가 컨테이너를 시작하고 체크포인트·Python 모듈 경로를 전달한다.
+터미널 2에서 MuJoCo와 정책을 실행한다. 실행 디렉터리가 새 Python 패키지 import 경로와 일치하도록 `src/go2_autodrive`로 이동한다.
 
 ```bash
-cd ~/go2_rl
-bash scripts/run_go2_simulation.sh
+cd /workspace/unitree_rl_mjlab/src/go2_autodrive
+go2-python -m go2_autodrive.simulation.go2_mujuco_udp_runner \
+  --config config/simulation.json --viewer viser --viewer-port 8080
 ```
 
-브라우저에서 `http://localhost:8080`을 열고 `Loaded ... iter=10000; navigation is initially stopped`가 나올 때까지 기다린다. 컨테이너 이름은 `GO2_MJLAB_CONTAINER`로 바꿀 수 있다. 뷰어를 사용하지 않는 유한 실행은 아래와 같이 지정한다. `--fast`는 실시간 pacing을 제거하므로 플래너 통합 시험의 실제 시간 조건과 다르다.
+호스트 브라우저에서 `http://localhost:8080`을 열고 `Loaded ... iter=10000`이 나올 때까지 기다린다. 새 runner의 로그에는 기존 runner의 `navigation is initially stopped` 문구가 없지만, 방향 입력과 유효한 플래너·센서 데이터가 오기 전에는 브리지가 0 속도를 보낸다. 뷰어 없이 유한 실행하는 명령은 같은 디렉터리에서 다음과 같다. `--fast`는 실시간 pacing을 제거하므로 플래너 통합 시험의 실제 시간 조건과 다르다.
 
 ```bash
-bash scripts/run_go2_simulation.sh --viewer none --steps 500
+go2-python -m go2_autodrive.simulation.go2_mujuco_udp_runner \
+  --config config/simulation.json --viewer none --steps 500
 ```
 
 터미널 3에서 키보드 노드를 실행한다.
 
 ```bash
-cd ~/go2_rl
-source /opt/ros/jazzy/setup.bash
-source install/setup.bash
-export ROS_DOMAIN_ID=42
-ros2 run go2_autonomous_driving keyboard_waypoint --ros-args \
-  --params-file src/go2_autonomous_driving/config/navigation.yaml
+cd /workspace/unitree_rl_mjlab
+ros2 run go2_autodrive keyboard_waypoint
 ```
+
+기존 패키지를 사용하는 절차는 터미널 1의 `ros2 launch go2_autonomous_driving simulation.launch.py`, 터미널 2의 루트 기준 `bash scripts/run_go2_simulation.sh --viewer viser`, 터미널 3의 `ros2 run go2_autonomous_driving keyboard_waypoint --ros-args --params-file src/go2_autonomous_driving/config/navigation.yaml`이다. `run_go2_docker.sh` 계열 스크립트는 호스트에서 실행하면 컨테이너로 전달하고, 컨테이너 안에서는 직접 실행한다. 컨테이너 이름은 `GO2_MJLAB_CONTAINER`로 바꿀 수 있다.
 
 | 키 | 동작 |
 | --- | --- |
@@ -263,37 +294,59 @@ cmake --build deploy/robots/go2/build
 
 **현재 로컬 소스의 한계:** `deploy/include/unitree_articulation.h` 끝에 셸 명령 텍스트가 붙어 있어 정상적인 C++ 소스로 볼 수 없다. 이번 문서화에서는 이를 수정하거나 빌드를 실행하지 않았다. 따라서 위 절차는 저장소가 제공하는 구성 설명이며 현재 작업 트리에서 성공한 실행 절차로 보고하지 않는다. ONNX 산출물·파라미터와 XML의 일치도 재검증이 필요하다.
 
-## 5. 기록으로 확인한 검증 범위
+## 5. 확인과 검증 범위
 
-다음 결과는 원본 README·로그·JSON 보고서에서 확인한 기존 기록이다. 이번 공개 문서 작성으로 새로 실행하거나 재현한 결과가 아니다.
+### 이번 문서 갱신에서 직접 확인한 내용 (2026-10-08)
+
+원본의 새 파일 경로·entry point·launch 파라미터·JSON 상대 경로·체크포인트 해시를 대조했다. 다음 환경 검사는 모터 출력, 정책 rollout, 물리 시뮬레이션 또는 ROS 노드 실행 없이 수행했다.
+
+| 확인 | 결과 | 범위 |
+| --- | --- | --- |
+| 기존 컨테이너에서 `scripts/check_go2_docker.py --require-cuda` | ROS import와 플래너 실행 파일 존재, `src.locomotion_rl`의 Go2 task 등록, EGL `64 × 64` 렌더, Torch/Warp CUDA 메모리 할당 통과 | ROS Python `3.12.3`, RTX 5070 Laptop GPU. 환경·모델 검사이며 주행·학습 재현은 아님 |
+| 새 runner의 `--help` | 종료 코드 0 | `go2-python -m go2_autodrive.simulation.go2_mujuco_udp_runner`의 import·CLI 확인 |
+| 새 runner의 기본 `load_config` | 체크포인트 `src/go2_autodrive/config/model_pt/model_10000.pt`, `telemetry_port → udp_port` 별칭 `9872` 확인 | 설정 로드만 수행. 환경·소켓·정책 초기화 없음 |
+| ROS 패키지 조회 | `go2_autodrive`·`go2_autonomous_driving` 모두 `/opt/go2_ros_ws/install/` 아래 등록 | 패키지 존재 확인. 설치된 launch와 최신 소스의 일치·통합 주행은 별도 확인 필요 |
+
+### 오늘 저장된 Docker 통합 기록과 과거 검사
+
+다음 결과는 원본 README·로그·JSON 보고서에 저장된 기록이다. 이번 문서 갱신에서 이 주행·학습 시험을 재실행하지 않았다. **오늘 14시경 저장된 Docker 검증은 새 패키지와 학습 경로가 커밋된 20시 리팩터링 전 결과**다. `log/docker_ros/check_navigation.py`는 `go2_autonomous_driving`을 호출하고, `simulation.log`는 당시 루트 `model_10000.pt`를 로드했다. 따라서 이 수치를 최신 `go2_autodrive`의 통합 검증 결과로 옮기지 않는다.
 
 | 근거 | 기록된 결과 | 해석 범위 |
 | --- | --- | --- |
-| `src/go2_autonomous_driving/README.md`의 2026-10-07 검증 | 단위 테스트 46개 통과, W 한 번으로 약 `3.15 m` 연속 전진, Space 후 정지 | 기존 Python MuJoCo·ROS 통합과 제어 로직 검증 기록 |
+| 2026-10-08 `log/docker_ros/validation.json`, `integration.log`, `navigation.log` | 같은 컨테이너의 플래너·MuJoCo·키보드, **1,500 policy step**, W 연속 이동 **`4.9213 m`**, Space 후 0 command, 뷰어 HTTP 200. 경로 119개·목표 61개, 2초 이후 이동 command 비율 1.0 | 리팩터링 전 기존 패키지의 Docker 통합 기록. 여러 초기 자세·장애물 조건의 통과 성능을 뜻하지 않음 |
+| 2026-10-08 `log/docker_ros/training.log`, `validation.json`과 `logs/rsl_rl/go2_velocity/2026-10-08_05-04-41_docker_ros_smoke/` | GPU **16환경 / PPO 2 iteration**, `model_0.pt`, `model_1.pt`, `policy.onnx`, 파라미터·TensorBoard 파일 저장 | 기존 환경의 학습·저장 경로 확인. 최종 `src.locomotion_rl` 이동 후 학습 재현과 정책 성능 평가는 아님 |
+| 2026-10-08 `log/docker_ros/cpu_check.log`, `viewer_result.json` | CPU 환경 확인, 자세 뷰어 HTTP 200, 호스트 가상 자세 UDP **138프레임** 수신, `motor_output=false` | 수신 전용 뷰어 검사. CPU 학습·물리 주행·실제 로봇 센서 검사와 구별 |
+| `src/go2_autonomous_driving/README.md`의 `2026-10-07 검증` 문단 | 단위 테스트 46개 통과, W 한 번으로 약 `3.15 m` 연속 전진, Space 후 정지 | 날짜가 명시된 과거 기록. 같은 README의 일반 `검증 및 범위` 절에는 이전 44개 결과도 남아 있음 |
 | `log/go2_sim_to_real_simulation.log`, `log/rename_to_go2_rl/simulation.log` | 체크포인트 `iter=10000` 로딩 및 Viser 실행 로그 | 로딩·실행 기록이며 실보행 품질이나 전체 장애물 회피 성능의 증명은 아님 |
 | `log/go2_stop_transition_report.json`, 수정 후 설정 | 목표 속도 0.5·0.78 각각 정지/후진×6위상, 총 **24조건**에서 첫 보호 조건 없음. 최대 관절 오차 각각 `0.4440`, `0.5697 rad` | seed 42, 고정 물리 조건, 50 Hz 정책 시험 |
 | 같은 보고서, 목표 속도 1.5 | 수정 전후 모두 12조건에서 약 `3.84 s`, 적용 command `1.43 m/s`에 원래 정책 목표가 관절 한계를 벗어남 | 정지 요청 이전 실패. 고속 보행 문제는 미해결 |
 | `log/go2_early_stop_report.json` | 목표 1.5, 가속 후 `1.56 s`에 정지 요청한 6위상은 수정 후 모두 통과, 최대 오차 `0.5835 rad` | 1.5까지 완전히 가속한 보행·정지 성공과 구별 |
 
+`log/docker_ros/planner.log`에는 주행 중 `following waypoint → stopped` 전환 후, Ctrl+C 종료 시 기존 브리지의 `destroy_node()`에서 `KeyboardInterrupt`와 종료 코드 `-2`가 기록되어 있다. Space로 0 command를 보내는 검사 결과와 프로세스의 정상 종료 여부는 별개다. 최신 코드에서 같은 종료 오류가 사라졌는지는 이번에 재현하지 않았다.
+
 정지·후진 검사는 `scripts/check_go2_control_transitions.py`가 실제 모델과 mjlab을 이용해 수행한 것이다. 기본은 고정 물리 조건이고 `--randomized`를 지정하면 play의 물리 무작위화를 유지한다. 첫 보호 조건이 생기면 해당 시험을 실패로 기록하며, 실로봇 모터 루프 500 Hz 전체와 실제 센서·기계 응답을 검증하지 않는다.
 
-현재 내비게이션이 동작 중인 환경에서 통합 검증은 `scripts/check_go2_navigation.py --continuous`로 실행할 수 있다. 이 도구는 초기 command 0, 경로 생성, 전진량, 연속 목표 갱신, Space 후 command 0을 확인한다. `--require-reached`는 단일 목표 도달 상태 검사용이다. 물리 시뮬레이터와 ROS launch가 먼저 실행되어 있어야 하며 이번 문서화에서는 실행하지 않았다.
+기존 패키지의 내비게이션이 동작 중인 컨테이너에서 통합 검증은 `python3 scripts/check_go2_navigation.py --continuous`로 실행할 수 있다. 이 도구는 `go2_autonomous_driving.sim.keyboard_node.KeyboardWaypoint`를 직접 사용해 초기 command 0, 경로 생성, 전진량, 연속 목표 갱신, Space 후 command 0을 확인한다. 새 `go2_autodrive.keyboard.keyboard_waypoint` 자체를 시험하는 도구는 아니다. `--require-reached`는 단일 목표 도달 상태 검사용이다. 물리 시뮬레이터와 ROS launch가 먼저 실행되어 있어야 하며 이번 문서 갱신에서는 실행하지 않았다.
 
-현재 남은 검증 범위는 실제 LiDAR·위치추정 연결, 다양한 장애물·지형·초기 조건에서의 내비게이션 성능, C++ 배포 경로 복구와 재빌드, 그리고 고속 명령에서 정책 관절 한계 문제다. 평지 시뮬레이션 통과만으로 실로봇 보행 안정성이나 자율주행 성능을 판단할 수 없다.
+현재 남은 검증 범위는 최종 리팩터링 후 새 패키지의 launch·브리지·키보드·runner 통합과 학습 재현, 실제 LiDAR·위치추정 연결, 다양한 장애물·지형·초기 조건의 내비게이션 성능, C++ 배포 경로 복구와 재빌드, 고속 명령의 정책 관절 한계 문제다. 평지 시뮬레이션 통과만으로 실로봇 보행 안정성이나 자율주행 성능을 판단할 수 없다.
 
 ## 6. 수정 위치 안내
 
 | 바꿀 내용 | 원본 `~/go2_rl`의 파일 |
 | --- | --- |
-| 물리 timestep·decimation | `src/tasks/go2/step_01_environment/base_env.py` |
-| Flat/Rough 환경·play 차이 | `src/tasks/go2/step_01_environment/go2_env.py` |
-| 학습 지형 raycast | `src/tasks/go2/step_01_environment/scene.py` |
-| 관측·접촉·정책 입력 | `src/tasks/go2/step_02_learning/observations.py` |
+| 물리 timestep·decimation | `src/locomotion_rl/go2_baseline/step_01_environment/base_env.py` |
+| Flat/Rough 환경·play 차이 | `src/locomotion_rl/go2_baseline/step_01_environment/go2_env.py` |
+| 학습 지형 raycast | `src/locomotion_rl/go2_baseline/step_01_environment/scene.py` |
+| 관측·접촉·정책 입력 | `src/locomotion_rl/go2_baseline/step_02_learning/observations.py` |
 | 로봇 기본 자세·PD·충돌 | `src/assets/robots/unitree_go2/go2_constants.py` |
-| 시뮬레이션 정책·UDP·가상 센서 | `src/go2_autonomous_driving/go2_autonomous_driving/simulation.py` |
-| 장애물·스캔 거리·시뮬레이션 속도 상한 | `src/go2_autonomous_driving/config/simulation.json` |
-| ROS 브리지·gate·키보드 설정 | `src/go2_autonomous_driving/config/navigation.yaml` |
-| 플래너·추종기 파라미터 | `src/go2_autonomous_driving/launch/simulation.launch.py` |
-| 호스트 빌드·Docker 실행 | `scripts/build_go2_navigation.py`, `scripts/run_go2_simulation.sh`, `docker/docker-compose.yml` |
+| 새 시뮬레이션 정책·UDP·가상 센서 | `src/go2_autodrive/go2_autodrive/simulation/go2_mujuco_udp_runner.py` |
+| 새 장애물·스캔 거리·속도 상한·모델 경로 | `src/go2_autodrive/config/simulation.json` |
+| 새 ROS 브리지·gate | `src/go2_autodrive/go2_autodrive/udp_ros_bridge/udp_ros_bridge.py`, `src/go2_autodrive/go2_autodrive/core.py` |
+| 새 연속 웨이포인트 키보드 | `src/go2_autodrive/go2_autodrive/keyboard/keyboard_waypoint.py` |
+| 새 플래너·추종기·브리지 launch 파라미터 | `src/go2_autodrive/go2_autodrive/launch/simulation.launch.py` |
+| 기존 simulation 스크립트의 실행 대상 | `src/go2_autonomous_driving/go2_autonomous_driving/sim/simulation.py` |
+| 기존 브리지·키보드 설정 | `src/go2_autonomous_driving/config/navigation.yaml`, `src/go2_autonomous_driving/launch/simulation.launch.py` |
+| Docker 환경·ROS 빌드·Python 분리 | `docker/Dockerfile`, `docker/docker-compose.yml`, `docker/container_env.sh`, `docker/ml_python.sh`, `scripts/build_go2_navigation.py` |
+| 호스트/컨테이너 접속·실행 | `scripts/setup_go2_docker.sh`, `scripts/enter_go2_docker.sh`, `scripts/run_go2_docker.sh`, `scripts/run_go2_simulation.sh` |
 | DDS 시뮬레이터 scene·네트워크 | `simulate/config.yaml`, `simulate/src/unitree_sdk2_bridge.h` |
 | C++ 배포 FSM·정책 설정 | `deploy/robots/go2/config/config.yaml`, `deploy/robots/go2/config/policy/velocity/v0/params/deploy.yaml` |

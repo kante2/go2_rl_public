@@ -1,6 +1,8 @@
 # Go2 sim2real: 시뮬레이션과 실제 로봇의 매핑
 
-이 문서는 `~/go2_rl`의 **Flat 정책을 실제 Go2 센서·모터에 연결하는 규칙**을 정리한다. 확인 기준은 2026-10-07의 로컬 작업 트리이며, 현재 사용하는 Python 실기 폐루프와 기존 C++ 배포 경로를 함께 대조했다. 모든 인덱스는 0부터 시작한다. 전체 기록 기준은 [상위 README](../README.md), 실행 절차는 [real](../real/README.md), 학습 정의는 [rl](../rl/README.md)에서 확인한다.
+이 문서는 `~/go2_rl`의 **Flat 정책을 실제 Go2 센서·모터에 연결하는 규칙**을 정리한다. 확인 기준은 **2026-10-08, `472850eebd2194eb71141b1349087145e4974f30` (`1008_refactor_2`)의 작업 트리**이며, 현재 사용하는 Python 실기 폐루프와 기존 C++ 배포 경로를 함께 대조했다. 모든 인덱스는 0부터 시작한다. 전체 기록 기준은 [상위 README](../README.md), 실행 절차는 [real](../real/README.md), 학습 정의는 [rl](../rl/README.md)에서 확인한다.
+
+오늘 학습 정의는 `src/tasks/go2/`에서 `src/locomotion_rl/go2_baseline/`로, 실기 제어·관측 매핑은 기존 패키지의 `go2_autonomous_driving/real/`로 이동했다. 실기 기본 체크포인트는 `src/go2_autonomous_driving/model_pt/model_10000.pt`다. 새 `src/go2_autodrive/`의 시뮬레이션 체크포인트는 `config/model_pt/model_10000.pt`에 따로 있으며 내용은 같다. 현재 ONNX·metadata와 관측·행동·SDK 매핑 수치는 유지된다.
 
 ## 1. 현재 사용하는 연결
 
@@ -154,7 +156,9 @@ Python 현재 폐루프는 속도 명령 가·감속 `[0.5,0.4,1.0]`, 목표 관
 
 ```text
 ~/go2_rl/
-├── model_10000.pt
+├── src/
+│   ├── go2_autonomous_driving/model_pt/model_10000.pt  # 실기 기본 경로
+│   └── go2_autodrive/config/model_pt/model_10000.pt    # 새 시뮬레이션 기본 경로
 └── artifacts/go2_real/
     ├── policy.onnx       # 정규화가 포함된 Actor
     ├── policy.json       # 관절·PD·배율·범위·시간 간격·해시
@@ -162,25 +166,25 @@ Python 현재 폐루프는 속도 명령 가·감속 `[0.5,0.4,1.0]`, 목표 관
     └── samples.json      # 대응하는 MuJoCo 관절·IMU·에피소드 스텝
 ```
 
-`model_10000.pt` 내부 iteration은 10000이다. 이 파일에 대한 원학습 run의 전체 설정·TensorBoard 로그는 현재 작업 폴더에서 연결해 확인하지 못했으므로, 현재 코드로 동일한 전체 학습을 수행했다고 단정하지 않는다. 2개의 짧은 Flat 학습 로그는 [rl 문서](../rl/README.md)에 별도로 기록했다.
+루트 `model_10000.pt`는 현재 없다. 두 패키지의 체크포인트는 SHA-256이 같고 실기 `policy.json.checkpoint_sha256`과 일치한다. 기존 체크포인트 내부 iteration은 10000이며, 파일 이동은 재학습을 의미하지 않는다. 이 파일에 대한 원학습 run의 전체 설정·TensorBoard 로그는 현재 작업 폴더에서 연결해 확인하지 못했으므로, 현재 코드로 동일한 전체 학습을 수행했다고 단정하지 않는다. 짧은 학습 확인 기록은 [rl 문서](../rl/README.md)에 별도로 기록했다.
 
-`scripts/export_go2_real_policy.py`는 Flat play 환경에서 Actor를 로드하고 학습 metadata에 SDK 매핑, 모델 관절 범위, step_dt, 위상 주기, clip_actions와 체크포인트·ONNX SHA256을 더한다. ONNX와 JSON은 하나의 정책 세트로 함께 관리해야 한다. 런타임은 파일 해시를 대조한다.
+`scripts/export_go2_real_policy.py`는 `src.locomotion_rl`의 Flat play 환경에서 Actor를 로드하고 학습 metadata에 SDK 매핑, 모델 관절 범위, step_dt, 위상 주기, clip_actions와 체크포인트·ONNX SHA256을 더한다. 기본 체크포인트 경로도 실기 패키지의 `model_pt/`로 갱신됐다. ONNX와 JSON은 하나의 정책 세트로 함께 관리해야 한다. 런타임은 파일 해시를 대조한다. `policy.json.run_path`는 export 시 파일명 `model_10000.pt`를 기록하므로 현재 파일 위치를 나타내는 경로로 해석하지 않는다.
 
 | 파일 | 현재 SHA256 |
 |---|---|
-| `model_10000.pt` | `3e1fb4cd705ce09550c96ee99f120563d7f2aaa638f6ebc261f3559ec8b5c736` |
+| `src/go2_autonomous_driving/model_pt/model_10000.pt` | `3e1fb4cd705ce09550c96ee99f120563d7f2aaa638f6ebc261f3559ec8b5c736` |
+| `src/go2_autodrive/config/model_pt/model_10000.pt` | `3e1fb4cd705ce09550c96ee99f120563d7f2aaa638f6ebc261f3559ec8b5c736` |
 | `artifacts/go2_real/policy.onnx` | `81f29b50a688f7fbf31a2af15007dfaac2b2e95910a97bec023d83a377ed8001` |
 
 기존 C++ 배포 경로는 `deploy/robots/go2/config/policy/velocity/v0/params/deploy.yaml`과 같은 버전의 `exported/policy.onnx`를 읽는다. 현재 그 위치에는 YAML만 있고 ONNX가 없다. Python의 `artifacts/go2_real/policy.onnx`가 자동으로 C++ 폴더에 배치되지는 않는다. C++ 배포 YAML도 ONNX metadata로 자동 생성되지 않는다.
 
-다음은 원본 프로젝트의 기존 export·확인 명령이다. export는 설치된 mjlab 컨테이너에서 실행한다.
+다음은 현재 원본 프로젝트의 export·확인 명령이다. export는 공통 Docker 실행 스크립트를 사용하고, 저장 데이터 parity 검사는 ONNX Runtime이 준비된 호스트 `.venv_go2_real`에서 실행한다. 이번 문서 갱신에서는 기존 산출물로 parity만 재검사했다.
 
 ```bash
 cd ~/go2_rl
-docker exec -e PYTHONPATH=/workspace/unitree_rl_mjlab \
-  -e PYTHONDONTWRITEBYTECODE=1 -w /workspace/unitree_rl_mjlab \
-  unitree-rl-mjlab python scripts/export_go2_real_policy.py \
-  --checkpoint model_10000.pt --output artifacts/go2_real
+bash scripts/run_go2_docker.sh python scripts/export_go2_real_policy.py \
+  --checkpoint src/go2_autonomous_driving/model_pt/model_10000.pt \
+  --output artifacts/go2_real
 
 # 저장 데이터와 호스트 ONNX만 사용한다. 로봇 I/O는 없다.
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/src/go2_autonomous_driving" \
@@ -197,24 +201,26 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/src/go2_autonomous_driving" \
 
 ## 8. 확인 결과와 남은 차이
 
-**이번 문서 작성 중 직접 실행한 확인:** `scripts/check_go2_real_policy.py`, 호스트 `.venv_go2_real` CPU ONNX Runtime, 저장된 시뮬레이션 데이터 100프레임, 로봇 I/O 없이 수행.
+**2026-10-08 이번 문서 갱신 중 직접 실행한 확인:** 이동된 `go2_autonomous_driving.real.real_control.PolicyMapping`을 사용하는 `scripts/check_go2_real_policy.py`, 호스트 `.venv_go2_real` CPU ONNX Runtime, 저장된 시뮬레이션 데이터 100프레임, 로봇 I/O 없이 수행.
 
 | 검증 | 결과 |
 |---|---|
-| ONNX vs 원래 Torch Actor 출력 | 최대 절대 오차 `8.344650268554688e-07` |
+| ONNX vs 저장된 원래 Torch Actor 출력 | 최대 절대 오차 `8.344650268554688e-07` |
 | SDK 순서로 변환한 저장 관절·IMU → 47차원 관측 복원 | 최대 절대 오차 `1.6689300537109375e-06` |
 | 통과 기준 | 두 오차 모두 `< 1e-4`, exit code 0 |
 | 파일 일치성 | 체크포인트·ONNX 실제 SHA256과 `policy.json` 일치 |
 
 이 검증은 저장된 MuJoCo 데이터를 SDK 순서로 변환해 관측을 복원한다. 실제 로봇의 센서 교정·축 방향·통신 지연과 폐루프 보행 안정성을 대신 확인하지는 않는다.
 
+오늘 저장된 `log/docker_ros/viewer_result.json`은 컨테이너 뷰어의 HTTP 200과 호스트에서 보낸 가상 측정 자세 138프레임 수신, 모터 출력 없음을 기록한다. 이는 화면·UDP 연결 검사다. 기존 실제 LowState dry-run과 가상 DDS·정지 전환 결과는 2026-10-07의 검증 기록이며, 오늘 새 실보행 결과가 추가된 것은 아니다.
+
 현재 차이와 제한은 다음과 같다.
 
 - 학습의 encoder bias·마찰·질량 중심 랜덤화는 현실 차이에 대한 학습 처리다. 실기 `PolicyMapping`에는 별도 관절 encoder bias 보정값이 없다.
 - C++ `bad_orientation()`는 항상 `false`라 기울기 기반 Passive 전환이 작동하지 않는다. Python 경로의 35도 기울기 검사와 별개다.
-- 로컬 `deploy/include/unitree_articulation.h` 끝에는 쉘 복귀 명령이 C++ 코드에 붙어 있어 현재 그대로 정상 재빌드할 수 있는 상태로 보기 어렵다. 문서 작성에서는 원본 파일을 수정하지 않았다.
+- `deploy/include/unitree_articulation.h` 끝의 셸 복구 명령은 현재 기준 커밋에도 포함되어 있어 그대로 정상 재빌드할 수 있는 상태로 보기 어렵다. 문서 작성에서는 원본 파일을 수정하지 않았다.
 - C++ 버전 폴더에 ONNX가 없어 현재 Python 실기 산출물 존재만으로 C++ 경로를 실행할 수는 없다.
-- 저장된 전환 시뮬레이션에서 0.5/0.78 m/s 명령의 수정 후 조건은 통과했지만, 1.5 m/s 조건은 정책에 적용 중인 명령 약 1.43 m/s에서 정책 목표 관절 범위를 벗어났다. JSON의 최대 전후 명령 1.5 m/s를 검증된 실기 속도로 해석하면 안 된다. 보고서 조건과 결과는 [simulator](../simulator/README.md)에 있다.
+- 2026-10-07의 저장된 전환 시뮬레이션에서 0.5/0.78 m/s 명령의 수정 후 조건은 통과했지만, 1.5 m/s 조건은 정책에 적용 중인 명령 약 1.43 m/s에서 정책 목표 관절 범위를 벗어났다. JSON의 최대 전후 명령 1.5 m/s를 검증된 실기 속도로 해석하면 안 된다. 보고서 조건과 결과는 [simulator](../simulator/README.md)에 있다.
 - Flat 47차원 대응 확인과 Rough 배포, 실제 내비게이션·고속 보행 검증은 각각 별도의 작업이다.
 
 정책 교체 시에는 관측 항목·순서·차원, 관절 이름·SDK 매핑, 기본 자세, 행동 배율, PD 배열 순서, 모델 관절 범위, phase_period와 step_dt, 정규화·파일 해시를 함께 대조하고 저장 데이터 parity 검증을 반복한다.
@@ -226,15 +232,17 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/src/go2_autonomous_driving" \
 | 파일 | 역할 |
 |---|---|
 | `src/assets/robots/unitree_go2/go2_constants.py` | 학습 기본 자세·위치 제어기·PD·effort_limit |
-| `src/tasks/go2/step_02_learning/observations.py` | Actor/Critic 관측 순서·노이즈·지형 스캔 |
-| `src/tasks/go2/step_02_learning/mdp/observations.py` | 학습 위상·발 상태 계산 |
-| `src/tasks/go2/step_03_training/runner.py` | 학습 중 ONNX export |
+| `src/locomotion_rl/go2_baseline/step_02_learning/observations.py` | Actor/Critic 관측 순서·노이즈·지형 스캔 |
+| `src/locomotion_rl/go2_baseline/step_02_learning/mdp/observations.py` | 학습 위상·발 상태 계산 |
+| `src/locomotion_rl/go2_baseline/step_03_training/runner.py` | 학습 중 ONNX export |
 | `scripts/export_go2_real_policy.py` | 실제 제어용 모델·JSON·parity 샘플 생성 |
 | `scripts/check_go2_real_policy.py` | Torch/ONNX 및 관측 복원 오차 확인 |
-| `src/go2_autonomous_driving/go2_autonomous_driving/real_control.py` | `PolicyMapping`, quaternion 중력 변환, CRC |
-| `src/go2_autonomous_driving/go2_autonomous_driving/real_robot.py` | LowState 검사·추론·LowCmd 발행·PD 재정렬 |
-| `src/go2_autonomous_driving/go2_autonomous_driving/real_closed_loop.py` | 직접 명령·램프·필터 후 이전 행동·실측 뷰어 전달 |
+| `src/go2_autonomous_driving/go2_autonomous_driving/real/real_control.py` | `PolicyMapping`, quaternion 중력 변환, CRC |
+| `src/go2_autonomous_driving/go2_autonomous_driving/real/real_robot.py` | LowState 검사·추론·LowCmd 발행·PD 재정렬 |
+| `src/go2_autonomous_driving/go2_autonomous_driving/real/real_closed_loop.py` | 직접 명령·램프·필터 후 이전 행동·실측 뷰어 전달 |
 | `src/go2_autonomous_driving/config/real_closed_loop.json` | 속도·변화율·timeout·검사 한계 |
+| `src/go2_autonomous_driving/model_pt/model_10000.pt` | 실기 export·폐루프의 현재 기본 체크포인트 |
+| `src/go2_autodrive/config/simulation.json`, `src/go2_autodrive/config/model_pt/model_10000.pt` | 새 시뮬레이션 설정과 같은 내용의 체크포인트 |
 | `deploy/robots/go2/config/policy/velocity/v0/params/deploy.yaml` | C++ 관절 매핑·관측·행동·PD·주기 |
 | `deploy/include/unitree_articulation.h` | C++ IMU·SDK 모터 → 정책 상태 |
 | `deploy/include/isaaclab/envs/mdp/observations/observations.h` | C++ 관측과 조이스틱·위상 |

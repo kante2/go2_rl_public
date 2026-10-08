@@ -2,9 +2,9 @@
 
 이 문서는 `~/go2_rl`에서 Unitree Go2의 속도 추종 보행 정책을 어떻게 학습하고 있는지 기록한다. 학습 코드는 mjlab 환경과 RSL-RL의 PPO를 사용하며, 정책이 목표 속도와 로봇 상태를 받아 12개 관절의 위치 목표를 출력한다. 경로 계획·LiDAR SLAM·자율주행 노드는 보행 정책 학습과 별도 구성이다.
 
-- 기록 기준: **2026-10-07, Asia/Seoul**.
-- 원본 기준 커밋: `35605c5c01887d7ab099736c357536e5006d64e6`.
-- 원본 작업 트리의 **커밋되지 않은 로컬 수정도 반영**했다. 커밋 하나만 체크아웃하면 이 문서의 전체 상태가 재현되는 것은 아니다.
+- 기록 기준: **2026-10-08, Asia/Seoul**.
+- 원본 기준 커밋: `472850eebd2194eb71141b1349087145e4974f30`.
+- 오늘 원본 소스·설정과 저장 산출물을 다시 대조했다. `logs/`와 `artifacts/`는 원본에서도 Git으로 관리하지 않으므로 커밋 체크아웃만으로 과거 실행 기록까지 재현되지는 않는다.
 - 본문에 표시한 소스·산출물 경로는 모두 **`~/go2_rl` 기준**이다. 이 공개 저장소는 문서 저장소이므로 해당 소스, 체크포인트, 로그, 로컬 Docker 이미지를 포함하지 않는다.
 - 이번 정리는 코드·설정·기존 산출물을 읽고 검사한 결과다. 새 학습이나 로봇 조작을 실행한 기록이 아니다.
 
@@ -14,21 +14,28 @@
 
 | 항목 | 현재 상태 | 근거 경로 |
 |---|---|---|
-| 등록된 태스크 | `Unitree-Go2-Flat`, `Unitree-Go2-Rough` | `src/tasks/go2/registry.py` |
+| 등록된 태스크 | `Unitree-Go2-Flat`, `Unitree-Go2-Rough` | `src/locomotion_rl/go2_baseline/registry.py` |
 | 평지 입력·출력 | Actor 47, Critic 74, 행동 12 | `step_02_learning/observations.py`, 저장 모델·ONNX |
-| 짧은 학습 실행 | Flat에서 환경 8개 × 8스텝 × 3회 PPO 업데이트를 수행한 로그 2개 존재 | `logs/rsl_rl/go2_velocity/*_smoke/` |
-| 별도 보행 체크포인트 | 루트 `model_10000.pt` 존재, 내부 `iter=10000`, Actor 47·Critic 74와 일치 | `model_10000.pt` |
+| 짧은 학습 실행 | 이전 8환경 × 8스텝 × 3회 로그 2개, 오늘 16환경 × 8스텝 × 2회 로그 2개 존재 | `logs/rsl_rl/go2_velocity/` |
+| 별도 보행 체크포인트 | `iter=10000`, Actor 47·Critic 74; 두 패키지 아래 모델 파일의 SHA-256 일치 | `src/go2_autonomous_driving/model_pt/model_10000.pt`, `src/go2_autodrive/config/model_pt/model_10000.pt` |
+| Docker 환경 | ROS 2 Jazzy·ML 환경을 포함한 `go2-rl:local`, Dockerfile·의존성 lock·실행 wrapper 제공 | `docker/`, `scripts/run_go2_training.sh` |
 | 실기용 정책 추출 | 정규화가 포함된 ONNX, 매핑 JSON, 비교용 관측·행동 100프레임 존재 | `artifacts/go2_real/` |
 | 확인 범위 | 저장 모델·학습 지표 유한값, 정책 가중치 변경, ONNX 구조, 오프라인 추론·관측 매핑 검사 | 아래 검증 기록 |
 | 남은 평가 | 동일 조건의 장시간 학습 재현, Rough 학습 완료, 정량 보행 성능과 실기 성능을 증명하는 기록은 이 조사에서 확보하지 않음 | 모델 파일 존재와 실행 성능은 별도로 판단 |
 
-`model_10000.pt`의 반복 번호는 직접 확인했지만, 이 모델의 원래 전체 학습 로그·당시 설정·코드 버전이 현재 `logs/`에 함께 남아 있지는 않다. 현재 소스로 처음부터 10,001회 학습한 결과라고 단정할 수 없다. 기존 `doc/go2_autonomous_driving/kante_2.md`에는 이 모델을 Flat 환경에 불러온 Viser 실행 로그가 있다. 그 기록은 정책 로딩과 환경 구성을 보여주며, 속도 오차·낙상률 같은 성능 수치를 제공하지 않는다.
+`model_10000.pt`의 반복 번호는 직접 확인했지만, 이 모델의 원래 전체 학습 로그·당시 설정·코드 버전이 현재 `logs/`에 함께 남아 있지는 않다. 현재 소스로 처음부터 10,001회 학습한 결과라고 단정할 수 없다. 루트의 모델 파일은 현재 없으며, 위 두 경로의 파일은 기존 실기 추출물 `policy.json`에 기록한 체크포인트 hash와도 일치한다. 기존 `doc/go2_autonomous_driving/kante_2.md`에는 이 모델을 Flat 환경에 불러온 Viser 실행 로그가 있다. 그 기록은 정책 로딩과 환경 구성을 보여주며, 속도 오차·낙상률 같은 성능 수치를 제공하지 않는다.
+
+## 2026-10-08 변경 사항
+
+학습 코드는 `src/tasks/go2/`에서 **`src/locomotion_rl/go2_baseline/`**로 이동했다. `scripts/train.py`, `play.py`, `list_envs.py`, 실기 정책 export는 새 모듈을 사용한다. Flat/Rough 태스크 이름과 네 단계의 역할은 유지된다. 보상 설정의 변경은 경로 주석·표 정리이며, 관측 순서·15개 활성 보상의 가중치·PPO 기본값은 기존 구성과 같다. 오늘 새 import 경로로 태스크와 설정을 조회해 확인했다.
+
+`src/locomotion_rl/kante_go2_rl.md`에 Quiet Paw 아이디어가 추가되어 있다. 발 접촉력·착지 속도를 소음 대리 비용으로 쓰고 제약값을 입력해 보행을 조절한다는 구상이며, 현재 Actor 관측에는 소음 제약 입력이 없다. 기존 `soft_landing` 보상만으로 해당 기능이 구현됐다고 판단하지 않는다.
 
 ## 코드 구조와 실제 학습 흐름
 
 ```text
 scripts/train.py
-  → src.tasks 로딩: Flat/Rough 환경·PPO 설정·Runner 등록
+  → src.locomotion_rl 로딩: Flat/Rough 환경·PPO 설정·Runner 등록
   → 선택한 환경/PPO 설정에 CLI 값을 덮어쓰기
   → ManagerBasedRlEnv 생성
   → RslRlVecEnvWrapper로 RSL-RL 인터페이스 연결
@@ -43,7 +50,7 @@ scripts/play.py
 
 PPO와 rollout 버퍼의 실제 구현은 설치된 `rsl-rl-lib`에 있다. 이 저장소는 환경·보상·관측·학습 옵션과 Runner의 저장 동작을 정의한다. Actor는 배포에 사용할 행동을 만들고, Critic은 학습 중 더 많은 시뮬레이션 정보를 사용해 상태 가치를 추정한다. 실기 추론에는 Critic이 필요하지 않다.
 
-`src/tasks/go2/` 아래의 역할은 다음과 같다.
+`src/locomotion_rl/go2_baseline/` 아래의 역할은 다음과 같다.
 
 | 원본 파일 | 역할 |
 |---|---|
@@ -80,7 +87,7 @@ PPO와 rollout 버퍼의 실제 구현은 설치된 `rsl-rl-lib`에 있다. 이 
 | Critic 차원 | 74 | 설정상 261 = 74 + 지형 스캔 187 |
 | 행동 차원 | 12 | 12 |
 
-Rough의 187개 ray는 현재 설치된 mjlab의 grid 생성 함수를 물리 환경 없이 호출해 확인했다. Rough 차원은 소스의 관측 구성에 따른 합계이며, 이번 조사에서 Rough rollout을 실행한 검증값은 아니다.
+Rough의 187개 ray는 2026-10-07 조사에서 mjlab의 grid 생성 함수를 물리 환경 없이 호출해 확인했다. 오늘도 같은 센서 설정·mjlab 버전을 사용한다. Rough 차원은 소스의 관측 구성에 따른 합계이며, 이번 조사에서 Rough rollout을 실행한 검증값은 아니다.
 
 공통 시간 설정은 물리 `timestep=0.005 s`와 `decimation=4`다. 정책·환경 스텝은 `0.02 s`, 즉 **50 Hz**이며 한 행동을 4개의 물리 스텝 동안 적용한다. 학습 에피소드는 최대 20초, 즉 최대 1,000개의 환경 스텝이다. 소스의 기본 `scene.num_envs`는 **1개**이므로 병렬 학습 규모는 CLI에서 지정해야 한다. README에 있는 4,096개는 실행 예시 값이다.
 
@@ -223,7 +230,7 @@ Play에서는 Actor 관측 노이즈와 외부 밀기를 제거하고 curriculum
 | max gradient norm | 1.0 |
 | experiment / 기본 logger | `go2_velocity` / W&B |
 
-예를 들어 환경 4,096개와 rollout 24개를 지정하면 PPO 한 번에 transition 98,304개를 수집한다. smoke 설정은 8 × 8 = 64개씩 수집하고 3회 업데이트하여 총 192개를 처리한다. 학습 시작 시 `init_at_random_ep_len=True`로 환경들의 초기 에피소드 진행도를 분산한다.
+예를 들어 환경 4,096개와 rollout 24개를 지정하면 PPO 한 번에 transition 98,304개를 수집한다. 이전 smoke는 8 × 8 = 64개씩 3회 업데이트하여 총 192개, 오늘 저장된 smoke는 16 × 8 = 128개씩 2회 업데이트하여 총 256개를 처리했다. 학습 시작 시 `init_at_random_ep_len=True`로 환경들의 초기 에피소드 진행도를 분산한다.
 
 ```text
 logs/rsl_rl/go2_velocity/<실행시각>_<run_name>/
@@ -238,86 +245,102 @@ logs/rsl_rl/go2_velocity/<실행시각>_<run_name>/
 
 반복 번호는 0부터 시작한다. Runner는 종료 시에도 모델을 저장하므로 10,001회 반복의 마지막 번호는 10000이다. `VelocityOnPolicyRunner.save()`는 체크포인트를 저장할 때마다 **같은 이름 `policy.onnx`를 갱신**한다. 따라서 `model_0.pt`와 실행 폴더의 최종 `policy.onnx`가 같은 반복의 정책이라고 가정하면 안 된다. 반복별 ONNX를 보관하려면 별도 이름으로 저장해야 한다.
 
-현재 실제 존재하는 ONNX는 단일 파일이다. 외부 데이터 파일을 사용하는 모델만 해당 `.data` 파일이 함께 필요하다. 원본 README의 설명과 달리 모든 export에서 `policy.onnx.data`가 생성되는 것은 아니다. 로그 폴더 이름은 실행 프로세스의 시간 설정으로 만들어지므로 폴더의 시각 표기를 자동으로 한국 시간이라고 단정하지 않는다.
+확인한 각 ONNX export는 외부 데이터 없이 `.onnx` 파일 하나로 구성된다. 외부 데이터 파일을 사용하는 모델만 해당 `.data` 파일이 함께 필요하다. 원본 README의 설명과 달리 모든 export에서 `policy.onnx.data`가 생성되는 것은 아니다. 로그 폴더 이름은 실행 프로세스의 시간 설정으로 만들어지므로 폴더의 시각 표기를 자동으로 한국 시간이라고 단정하지 않는다.
 
 ## 현재 환경에서 재현하는 명령
 
-아래 명령은 **문서 저장소가 아니라 `~/go2_rl`에서 실행**한다. 현재 `docker/docker-compose.yml`의 service 이름은 `unitree-rl`, 컨테이너 이름은 `unitree-rl-mjlab`, 소스 mount는 `/workspace/unitree_rl_mjlab`이다. 이미지 `unitree-rl-mjlab:go2-rl-relocation`은 현재 머신에 보존된 로컬 이미지이며 공개 배포 이미지나 Dockerfile이 함께 제공된 구성은 아니다.
+아래 명령은 **문서 저장소가 아니라 `~/go2_rl`에서 실행**한다. 현재 `docker/docker-compose.yml`의 service 이름은 `unitree-rl`, 컨테이너 이름은 `unitree-rl-mjlab`, 소스 mount는 `/workspace/unitree_rl_mjlab`이다. 오늘 추가된 `docker/Dockerfile`과 `requirements.lock`으로 **`go2-rl:local`** 이미지를 빌드한다. 기존 로컬 이미지에만 의존하던 구성에서 빌드 파일을 갖춘 구성으로 바뀌었다.
 
-2026-10-07 현재 컨테이너에서 읽어 확인한 버전은 Python **3.11.16**, PyTorch **2.14.0+cu130**, mjlab **1.2.0**, MuJoCo **3.5.0**, mujoco-warp **3.5.0**, warp-lang **1.12.0**, rsl-rl-lib **5.0.1**이다. `setup.py`가 직접 고정한 버전은 `mjlab==1.2.0`, `mujoco-warp==3.5.0`뿐이다. 원본 `kante_.md`의 2026-09-30 검증 환경(Python 3.11.15, PyTorch 2.7.0+cu128)은 과거 기록으로 구분한다.
+2026-10-08 컨테이너에서 읽어 확인한 학습 환경은 Python **3.11.16**, PyTorch **2.14.0** / CUDA **13.0**, mjlab **1.2.0**, MuJoCo **3.5.0**, mujoco-warp **3.5.0**, warp-lang **1.12.0**, rsl-rl-lib **5.0.1**이다. ROS 2 Jazzy는 시스템 Python **3.12.3**을 사용한다. 컨테이너의 `python`/`go2-python`은 학습용 3.11, `python3`은 ROS용 시스템 Python이다. `go2-python` wrapper가 ROS의 Python 확장 모듈 경로를 제거한다.
 
-현재 로컬 구성을 올리고 태스크 목록 확인:
+`setup.py`의 직접 고정은 `mjlab==1.2.0`, `mujoco-warp==3.5.0`이며, Docker에서는 139개 학습용 패키지의 버전을 `requirements.lock`으로 고정한다. 베이스 이미지 digest와 외부 플래너 커밋도 고정하지만 OS/ROS apt 패키지는 빌드 시점 저장소에서 설치한다. 원본 `kante_.md`의 2026-09-30 검증 환경(Python 3.11.15, PyTorch 2.7.0+cu128)은 과거 기록으로 구분한다.
+
+이미지 빌드·컨테이너 준비와 태스크 목록 확인:
 
 ```bash
 cd ~/go2_rl
-docker compose -f docker/docker-compose.yml up -d unitree-rl
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
-  python scripts/list_envs.py
+bash scripts/setup_go2_docker.sh
+bash scripts/run_go2_docker.sh python scripts/list_envs.py
 ```
 
-환경 생성·학습·저장 경로를 확인하는 짧은 Flat 학습:
+이미지가 준비된 머신에서는 첫 명령에 `--no-build`를 붙인다. Linux x86_64, Docker/Compose, NVIDIA 드라이버·Container Toolkit이 필요하다. 실행 wrapper는 호스트에서 컨테이너로 명령을 전달하고, 컨테이너 안에서는 같은 명령을 직접 실행한다. 자세한 설치·ROS 구성은 원본 `docker/README.md`에 있다.
+
+오늘 저장된 smoke와 같은 규모로 환경 생성·학습·저장 경로를 확인하는 Flat 학습:
 
 ```bash
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
-  python scripts/train.py Unitree-Go2-Flat \
-  --env.scene.num-envs 8 \
-  --agent.max-iterations 3 \
+bash scripts/run_go2_training.sh Unitree-Go2-Flat \
+  --env.scene.num-envs 16 \
+  --agent.max-iterations 2 \
   --agent.num-steps-per-env 8 \
   --agent.save-interval 1 \
   --agent.logger tensorboard \
-  --agent.run-name pipeline_smoke
+  --agent.run-name docker_smoke
 ```
 
 평지 본학습 예시:
 
 ```bash
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
-  python scripts/train.py Unitree-Go2-Flat \
+bash scripts/run_go2_training.sh Unitree-Go2-Flat \
   --env.scene.num-envs 4096 \
+  --agent.max-iterations 10001 \
   --agent.logger tensorboard \
   --agent.run-name flat_training
 ```
 
-Rough는 태스크 이름을 `Unitree-Go2-Rough`로 바꾼다. 환경 수는 GPU 메모리에 맞게 조정한다. 여러 GPU를 사용하는 경우 `--gpu-ids 0 1`을 추가하며 GPU마다 동일한 환경 수를 사용한다. 이러한 본학습 명령은 사용 예시이며 이번 문서화 과정에서 실행하지 않았다.
+Rough는 태스크 이름을 `Unitree-Go2-Rough`로 바꾼다. 환경 수는 GPU 메모리에 맞게 조정한다. 여러 GPU를 사용하는 경우 `--gpu-ids 0 1`을 추가하며 GPU마다 동일한 환경 수를 사용한다. 인자가 없는 `run_go2_training.sh`는 Flat을 선택하며 병렬 환경 기본값은 1개다. 위 학습 명령은 사용 예시이며 이번 문서 갱신 과정에서 실행하지 않았다.
 
 로그가 남아 있는 smoke 체크포인트 재생:
 
 ```bash
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
+bash scripts/run_go2_docker.sh \
   python scripts/play.py Unitree-Go2-Flat \
-  --checkpoint-file logs/rsl_rl/go2_velocity/2026-10-07_01-37-23_docker_setup_smoke/model_2.pt \
+  --checkpoint-file logs/rsl_rl/go2_velocity/2026-10-08_05-04-41_docker_ros_smoke/model_1.pt \
   --num-envs 1 --device cuda:0 --viewer viser
 ```
 
-별도 보행 모델을 보려면 `--checkpoint-file model_10000.pt`로 바꾼다. `--viewer native`는 그래픽 세션이 있는 환경에서 사용한다. `auto`는 DISPLAY/WAYLAND_DISPLAY의 유무로 Native 또는 Viser를 고른다. Play는 Actor 추론만 수행하며, 불러온 체크포인트를 학습 중 파일 변화에 맞추어 자동 갱신하지 않는다.
+별도 보행 모델을 보려면 `--checkpoint-file src/go2_autonomous_driving/model_pt/model_10000.pt`로 바꾼다. `--viewer native`는 그래픽 세션이 있는 환경에서 사용하며, 현재 headless Docker 구성에서는 `viser`를 사용한다. `auto`는 DISPLAY/WAYLAND_DISPLAY의 유무로 Native 또는 Viser를 고른다. Play는 Actor 추론만 수행하며, 불러온 체크포인트를 학습 중 파일 변화에 맞추어 자동 갱신하지 않는다.
 
 TensorBoard 확인:
 
 ```bash
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
-  tensorboard --logdir logs/rsl_rl/go2_velocity
+bash scripts/run_go2_docker.sh \
+  python -m tensorboard.main --logdir logs/rsl_rl/go2_velocity
 ```
 
 실기용 Actor와 검증 데이터를 추출하는 명령은 다음과 같다. 기존 `artifacts/go2_real/`를 지정하면 그 안의 출력 파일이 갱신된다.
 
 ```bash
-docker exec -w /workspace/unitree_rl_mjlab unitree-rl-mjlab \
+bash scripts/run_go2_docker.sh \
   python scripts/export_go2_real_policy.py \
-  --checkpoint model_10000.pt --output artifacts/go2_real
+  --checkpoint src/go2_autonomous_driving/model_pt/model_10000.pt \
+  --output artifacts/go2_real
 ```
 
-이 스크립트는 Flat의 정규화 포함 Actor를 ONNX로 내보내고 `policy.json`에 관측·관절 이름·행동 배율·PD·joint limit·SDK 매핑·시간 간격·파일 hash를 저장한다. 이후 시뮬레이터 100스텝에서 `parity.npz`와 `samples.json`을 만든다. 이 명령은 실기 모터 명령을 발행하는 스크립트가 아니다.
+이 스크립트의 기본 체크포인트도 위 경로로 변경됐다. Flat의 정규화 포함 Actor를 ONNX로 내보내고 `policy.json`에 관측·관절 이름·행동 배율·PD·joint limit·SDK 매핑·시간 간격·파일 hash를 저장한다. 이후 시뮬레이터 100스텝에서 `parity.npz`와 `samples.json`을 만든다. 이 명령은 실기 모터 명령을 발행하는 스크립트가 아니다.
 
 ## 산출물과 검증 기록
 
-현재 학습 로그 폴더는 다음 두 개다.
+현재 학습 로그 폴더는 다음 네 개다.
 
 ```text
 logs/rsl_rl/go2_velocity/2026-09-30_18-51-15_refactor_smoke/
 logs/rsl_rl/go2_velocity/2026-10-07_01-37-23_docker_setup_smoke/
+logs/rsl_rl/go2_velocity/2026-10-08_03-53-38_docker_smoke/
+logs/rsl_rl/go2_velocity/2026-10-08_05-04-41_docker_ros_smoke/
 ```
 
-두 폴더의 `params/agent.yaml`, `params/env.yaml`은 seed 42, 평면 지형, 환경 8개, rollout 8, 학습 반복 3, 저장 간격 1, TensorBoard 사용을 기록한다. 각 폴더에는 `model_0.pt`, `model_1.pt`, `model_2.pt`, `policy.onnx`, 설정 YAML, TensorBoard 이벤트가 실제로 있다. `git/`는 첫 번째 실행에 존재한다.
+네 실행의 `params/agent.yaml`, `params/env.yaml`은 seed 42, 평면 지형, rollout 8, 저장 간격 1, TensorBoard 사용을 기록한다.
+
+| 실행 | 환경 수 | PPO 반복 수 | 수집 transition 수 | 저장된 체크포인트 |
+|---|---:|---:|---:|---|
+| `refactor_smoke` (09-30) | 8 | 3 | 192 | `model_0.pt`~`model_2.pt` |
+| `docker_setup_smoke` (10-07) | 8 | 3 | 192 | `model_0.pt`~`model_2.pt` |
+| `docker_smoke` (10-08) | 16 | 2 | 256 | `model_0.pt`, `model_1.pt` |
+| `docker_ros_smoke` (10-08) | 16 | 2 | 256 | `model_0.pt`, `model_1.pt` |
+
+각 폴더에 `policy.onnx`, 설정 YAML, TensorBoard 이벤트가 실제로 있다. `git/`는 첫 실행에 존재한다. `log/docker_ros/training.log`는 ROS 환경을 불러온 컨테이너에서 수행한 `docker_ros_smoke`의 GPU 실행·반복 0/1·모델 저장 기록과 대응한다.
+
+**저장된 설정과 현재 모듈 경로를 구분한다.** 오늘 두 실행을 포함한 기존 `env.yaml`에는 사용자 정의 함수가 `src.tasks.go2.*` 경로로 기록되어 있다. 따라서 이 실행들은 이동 전 모듈 경로로 수행된 학습의 증거다. 오늘 문서 갱신 중 새 `src.locomotion_rl.*` 경로로 태스크·설정을 불러오는 것은 확인했지만, 이동 후 새 학습을 시작해 검증하지는 않았다.
 
 2026-10-07 문서 작성 시 기존 파일에 대한 읽기 전용 검사를 수행한 결과:
 
@@ -326,13 +349,28 @@ logs/rsl_rl/go2_velocity/2026-10-07_01-37-23_docker_setup_smoke/
 | 두 smoke의 최종 체크포인트 | 내부 `iter=2`; Actor·Critic state의 텐서에 NaN/Inf 없음 |
 | 두 smoke의 정책 업데이트 | `model_0.pt`와 `model_2.pt` 사이 Actor MLP 가중치 변경 확인 |
 | TensorBoard | 각 실행 36종 scalar tag, 기록 step 0·1·2의 값 유한 |
-| 루트 `model_10000.pt` | 내부 `iter=10000`; Actor 입력 47, Critic 입력 74; 저장 state 텐서 유한 |
+| 당시 루트 `model_10000.pt` | 내부 `iter=10000`; Actor 입력 47, Critic 입력 74; 저장 state 텐서 유한 |
 | ONNX 검사 | 두 smoke 및 실기용 ONNX 모두 `onnx.checker` 통과; 입력 `[1,47]`, 출력 `[1,12]` |
 | 실기 추출 데이터 | `parity.npz`: 관측 `[100,47]`, 행동 `[100,12]`, 모두 유한값 |
-| 추출물 출처 | `policy.json`의 체크포인트·ONNX SHA-256이 현재 파일과 일치 |
-| 태스크 등록 | 현재 컨테이너에서 `scripts/list_envs.py`로 Flat/Rough 목록 확인 |
+| 추출물 출처 | `policy.json`의 체크포인트·ONNX SHA-256이 당시 파일과 일치 |
+| 태스크 등록 | 당시 컨테이너에서 `scripts/list_envs.py`로 Flat/Rough 목록 확인 |
 | 오프라인 실기 정책 검사 | 100프레임 통과; ONNX/원본 Actor 최대 오차 `8.344650268554688e-7`, 실기 관측 재구성 최대 오차 `1.6689300537109375e-6` |
 
 오프라인 검사는 `scripts/check_go2_real_policy.py`로 수행했으며 상세 매핑과 해석은 [sim2real 문서](../sim2real/README.md)에 있다. 이는 입력 재구성과 추론 결과의 일치 검사다. 통신 지연, 모터 응답, 로봇의 실제 낙상률·보행 안정성까지 검증한 결과는 아니다.
 
-Smoke는 학습 파이프라인이 기존 실행에서 동작했고 가중치가 변경되었다는 근거다. 192개의 transition으로 보행 성능이 충분히 학습되었다고 판단하지 않는다. 정책의 성능을 비교할 때는 체크포인트뿐 아니라 당시 환경·PPO YAML, 코드 변경 기록, 평가 조건과 속도 오차·낙상률·episode length·외란 회복 같은 결과를 함께 남겨야 한다. 원본 저장소의 `logs/`와 `artifacts/go2_real/`는 Git에서 제외되어 있으므로 새 머신에서는 원본 산출물을 별도로 확보하거나 재실행해야 한다.
+2026-10-08 이번 문서 갱신에서 직접 수행한 확인:
+
+| 검사 | 결과 |
+|---|---|
+| 새 모듈 등록·설정 조회 | `src.locomotion_rl` import 후 Flat/Rough와 새 Runner 경로 확인; 기본 환경 1개, Actor/Critic 관측 순서, 보상 15개, 50 Hz, PPO 기본값 확인 |
+| 네 smoke의 최종 체크포인트 | 이전 두 실행 `iter=2`, 오늘 두 실행 `iter=1`; Actor·Critic 텐서 모두 유한 |
+| 네 smoke의 정책 업데이트 | 첫·최종 체크포인트 사이 Actor MLP 가중치 변경 확인 |
+| 네 실행의 TensorBoard | 각 36종 scalar tag; 이전 step 0·1·2, 오늘 step 0·1의 값 모두 유한 |
+| 네 학습 ONNX | `onnx.checker` 통과; 모두 입력 `[1,47]`, 출력 `[1,12]` |
+| 이동된 보행 모델 | `iter=10000`; Actor 입력 47·Critic 입력 74, 텐서 유한; 두 모델 SHA-256 `3e1fb4cd705ce09550c96ee99f120563d7f2aaa638f6ebc261f3559ec8b5c736` 동일 |
+| 기존 실기 추출물 | 위 모델과 `policy.json` 체크포인트 hash 일치; ONNX hash 일치; 관측 `[100,47]`·행동 `[100,12]` 모두 유한 |
+| 새 Docker 환경 | `scripts/check_go2_docker.py --require-cuda` 통과; ROS·플래너 import, Go2 XML 로딩, 64×64 EGL 렌더링, RTX 5070 Laptop GPU의 Torch/Warp CUDA 할당 확인 |
+
+이 확인은 기존 파일 검사·설정 조회·환경 검사로 수행했다. 새 학습, 정책 rollout, 실제 로봇 모터 구동은 실행하지 않았다. 오늘 기존 파일에서 확인한 짧은 학습은 파이프라인과 가중치 변경의 근거이며, 192개 또는 256개의 transition으로 보행 성능이 충분히 학습되었다고 판단하지 않는다.
+
+정책의 성능을 비교할 때는 체크포인트뿐 아니라 당시 환경·PPO YAML, 코드 변경 기록, 평가 조건과 속도 오차·낙상률·episode length·외란 회복 같은 결과를 함께 남겨야 한다. 원본 저장소의 `logs/`와 `artifacts/go2_real/`는 Git에서 제외되어 있으므로 새 머신에서는 원본 산출물을 별도로 확보하거나 재실행해야 한다.
